@@ -4,3 +4,4 @@ torch
 langchain
 together
 beautifulsoup4
+langchain-openai
