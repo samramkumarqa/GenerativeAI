@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from functools import lru_cache
+from dotenv import load_dotenv
+load_dotenv()
 
 # ====== SET TOGETHER.AI API KEY ======
 os.environ["OPENAI_API_KEY"] = "6fdb42ef99b431fae9129c358de43c6844bbd2d7abe8ac0f18a374f44879cd02"  # <-- Replace with your actual key
@@ -27,9 +29,9 @@ prompt = PromptTemplate.from_template(
 chain = prompt | llm
 
 # ====== STREAMLIT UI SETUP ======
-st.set_page_config(page_title="News Research Tool", layout="wide")
-st.title("📰 News Research Tool (Free with Together.ai)")
-st.markdown("Enter a **news article URL** and a **question** below.")
+st.set_page_config(page_title="Testcase creation Tool", layout="wide")
+st.title("Test creation tool (Free with Together.ai)")
+st.markdown("Enter a **URL** or **PDF** and a **request** below.")
 
 # ====== CACHING ======
 @lru_cache(maxsize=32)
@@ -40,10 +42,10 @@ def fetch_article_text(url: str) -> str:
     return "\n".join(p.get_text() for p in paragraphs)
 
 # ====== UI INPUTS ======
-url = st.text_input("Article URL", placeholder="https://...")
-question = st.text_input("Your Question", placeholder="What is this article about?")
+url = st.text_input("BRD URL", placeholder="https://...")
+question = st.text_input("Your Question", placeholder="What type testcases to be prepared?")
 
-if st.button("Process URL"):
+if st.button("Process the request"):
     if not url or not question:
         st.warning("Please provide both the URL and the question.")
     else:
