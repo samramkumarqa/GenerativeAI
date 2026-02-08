@@ -11,3 +11,4 @@ langchain-text-splitters
 langchain-huggingface
 faiss-cpu
 sentence-transformers
+openpyxl
