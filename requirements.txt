@@ -1,7 +1,13 @@
 streamlit
-transformers
-torch
-langchain
-together
+requests
 beautifulsoup4
+python-dotenv
+pypdf
+pandas
+langchain-core
 langchain-openai
+langchain-community
+langchain-text-splitters
+langchain-huggingface
+faiss-cpu
+sentence-transformers
