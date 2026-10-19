@@ -13,6 +13,9 @@ from tcgen.pipeline import (
     extract_requirements,
     generate_test_cases,
     missing_ids,
+    ready_to_export,
+    review_summary,
+    revise_test_cases,
     traceability,
 )
 from tcgen.rag import DocumentIndex
@@ -103,17 +106,65 @@ def test_traceability_flags_uncovered(sample_text):
     assert rows[0]["Test Case IDs"] == "TC-001"
 
 
-def test_workbook_structure(sample_text):
-    reqs = _reqs(3)
-    tcs = generate_test_cases(reqs[:2], DocumentIndex(sample_text, HashEmbedder()), FakeLLM(), ["Functional"])
-    wb = load_workbook(io.BytesIO(build_workbook(reqs, tcs, "sample.pdf", "fake")))
+def _review(tcs, statuses, comments=None):
+    comments = comments or {}
+    return [
+        tc.model_copy(update={"review_status": st, "reviewer_comment": comments.get(tc.id, "")})
+        for tc, st in zip(tcs, statuses)
+    ]
 
-    assert wb.sheetnames == ["Summary", "Test Cases", "Traceability", "Requirements"]
+
+def test_workbook_exports_only_approved_with_audit(sample_text):
+    reqs = _reqs(3)
+    tcs = generate_test_cases(reqs, DocumentIndex(sample_text, HashEmbedder()), FakeLLM(), ["Functional"])
+    tcs = _review(tcs, ["Approved", "Rejected", "Approved"], {"TC-002": "Too vague"})
+    wb = load_workbook(io.BytesIO(build_workbook(reqs, tcs, "sample.pdf", "fake", reviewer="Ram")))
+
+    assert wb.sheetnames == ["Summary", "Test Cases", "Traceability", "Requirements", "Rejected"]
     cases = wb["Test Cases"]
-    assert cases["A2"].value == "TC-001"
+    assert [cases.cell(row=r, column=1).value for r in range(2, cases.max_row + 1)] == ["TC-001", "TC-003"]
     assert cases["G2"].value == "1. Open cart\n2. Tap Checkout"
     assert cases["J2"].value == "Not Run"
-    assert cases.data_validations.dataValidation  # status dropdown present
-    assert wb["Traceability"]["H4"].value == "Not covered"
-    assert wb["Summary"]["B9"].value == "=IF(B6=0,0,B8/B6)"
-    assert wb["Summary"]["A6"].value == "Requirements" and wb["Summary"]["A8"].value == "Requirements covered"
+    assert cases.data_validations.dataValidation  # execution status dropdown present
+    assert wb["Rejected"]["A2"].value == "TC-002" and wb["Rejected"]["G2"].value == "Too vague"
+    assert wb["Traceability"]["H3"].value == "Not covered"  # R2's only test was rejected
+
+    summary = {wb["Summary"].cell(row=r, column=1).value: wb["Summary"].cell(row=r, column=2).value
+               for r in range(3, 20)}
+    assert summary["Reviewed and approved by"] == "Ram"
+    assert summary["Rejected by reviewer"] == 1
+    assert summary["Coverage"] == "=IF(B7=0,0,B10/B7)"  # Requirements row 7, covered row 10
+
+
+def test_export_gate():
+    tcs = _review(generate_test_cases(_reqs(2), _index(), FakeLLM(), ["Functional"]), ["Approved", "Pending"])
+    assert ready_to_export(tcs, "Ram") == (False, "1 test case(s) still pending review.")
+    tcs = _review(tcs, ["Rejected", "Rejected"])
+    assert ready_to_export(tcs, "Ram") == (False, "Approve at least one test case.")
+    tcs = _review(tcs, ["Approved", "Rejected"])
+    assert ready_to_export(tcs, "  ") == (False, "Enter the reviewer's name to sign off.")
+    assert ready_to_export(tcs, "Ram") == (True, "")
+    assert review_summary(tcs) == {"Pending": 0, "Approved": 1, "Rejected": 1}
+
+
+def test_revise_rejected_uses_feedback():
+    reqs = _reqs(2)
+    llm = FakeLLM()
+    tcs = generate_test_cases(reqs, _index(), llm, ["Functional"])
+    tcs = _review(tcs, ["Rejected", "Rejected"], {"TC-001": "Add an invalid amount case"})
+
+    out = revise_test_cases(tcs, reqs, _index(), llm, next_number=3)
+
+    assert "REVIEWER FEEDBACK: Add an invalid amount case" in llm.calls[-1][1]
+    assert "REVIEWER FEEDBACK: (none given)" in llm.calls[-1][1]
+    new = out["TC-001"]
+    assert (new.id, new.requirement_id, new.revision, new.review_status) == ("TC-003", "R1", 2, "Pending")
+    assert "Add an invalid amount case" in new.title
+    assert out["TC-002"].id == "TC-004"
+
+
+def _index():
+    from conftest import SAMPLE_BRD
+    from tcgen.loaders import read_upload
+
+    return DocumentIndex(read_upload(SAMPLE_BRD.name, SAMPLE_BRD.read_bytes()), HashEmbedder())

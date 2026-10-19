@@ -71,6 +71,9 @@ class Requirement(BaseModel):
     source_excerpt: str = ""
 
 
+REVIEW_STATUSES = ["Pending", "Approved", "Rejected"]
+
+
 class TestCase(BaseModel):
     id: str
     requirement_id: str
@@ -81,3 +84,7 @@ class TestCase(BaseModel):
     steps: list[str]
     test_data: str
     expected_result: str
+    # Human-in-the-loop review
+    review_status: str = "Pending"
+    reviewer_comment: str = ""
+    revision: int = 1  # bumped each time the model rewrites it from reviewer feedback
