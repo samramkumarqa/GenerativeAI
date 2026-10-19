@@ -16,6 +16,15 @@ def _app(monkeypatch):
     return AppTest.from_file(str(ROOT / "main.py"), default_timeout=30)
 
 
+def _click_in_review(at, label):
+    """Click a button inside the review fragment.
+
+    AppTest doesn't re-render a fragment after a fragment-scoped st.rerun, so do a
+    full run afterwards, as the browser would show it."""
+    _button(at, label).click().run()
+    return at.run()
+
+
 def _button(at, label):
     return next(b for b in at.button if b.label.startswith(label))
 
@@ -39,7 +48,7 @@ def test_full_flow_with_sample(monkeypatch):
     assert _download(at).disabled
     assert any("Tick Approve on at least one" in i.value for i in at.info)
 
-    _button(at, "☑ Select all").click().run()
+    _click_in_review(at, "☑ Select all")
     assert [m.value for m in at.metric] == ["14", "0", "100%"]
     assert _download(at).disabled
     assert any("Enter the reviewer's name" in i.value for i in at.info)
@@ -49,7 +58,7 @@ def test_full_flow_with_sample(monkeypatch):
     assert not _download(at).disabled
     assert any("signed off by Ramkumar" in s.value for s in at.success)
 
-    _button(at, "☐ Clear all").click().run()
+    _click_in_review(at, "☐ Clear all")
     assert [m.value for m in at.metric] == ["0", "14", "0%"]
     assert _download(at).disabled
 
@@ -82,7 +91,7 @@ def test_regenerate_unticked_with_feedback(monkeypatch):
     assert [m.value for m in at.metric][:2] == ["13", "1"]
 
     at.text_area(key="feedback").input("Cover INR 198").run()
-    _button(at, "🔁 Regenerate 1 unticked").click().run()
+    _click_in_review(at, "🔁 Regenerate 1 unticked")
     assert not at.exception, at.exception
     assert any("1 test case(s) rewritten" in s.value for s in at.success)
 
