@@ -29,11 +29,11 @@ def test_full_flow_with_sample(monkeypatch):
 
     _button(at, "Extract requirements").click().run()
     assert not at.exception
-    assert any("2 requirements found" in c.value for c in at.caption)
+    assert any("14 requirements found" in c.value for c in at.caption)
 
-    _button(at, "Generate for 2 requirements").click().run()
+    _button(at, "Generate for 14 requirements").click().run()
     assert not at.exception, at.exception
-    assert [m.value for m in at.metric] == ["2", "2", "100%"]
+    assert [m.value for m in at.metric] == ["14", "14", "100%"]
     assert at.get("download_button")
 
 

@@ -35,6 +35,18 @@ class FakeLLM:
 
     def generate(self, system, user, schema):
         self.calls.append((system, user, schema.__name__))
+        if schema is RequirementList and "previous pass missed" in system:
+            # Recovery request: return one requirement per ID asked for (plus one not asked for).
+            ids = re.search(r"IDS: (.*)", user).group(1).split(", ")
+            return RequirementList(
+                requirements=[
+                    ExtractedRequirement(
+                        source_id=i, title=f"Recovered {i}", description="d",
+                        category="Functional", priority="Medium", source_excerpt="",
+                    )
+                    for i in ids + ["ZZ-99"]
+                ]
+            )
         if schema is RequirementList:
             # Reports the same requirement from two overlapping sections, plus one without a source ID.
             return RequirementList(
