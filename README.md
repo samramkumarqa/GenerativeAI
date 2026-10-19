@@ -11,13 +11,13 @@ Turn a Business Requirements Document into **traceable, ready-to-run test cases*
 1. **Load a BRD** as PDF, Word, text or a public URL. A sample BRD is built in.
 2. **Extract requirements.** The LLM reads the whole document section by section and lists every testable requirement, keeping the BRD's own IDs (e.g. `FR-03`) and a verbatim source quote. You review, edit, untick or add requirements before anything is generated.
 3. **Generate test cases per requirement.** For each batch of requirements, the passages of the BRD that describe them are retrieved with FAISS and passed to the model as context (RAG), so test cases use the document's real rules and values.
-4. **Review and approve (human in the loop).** Every generated test case starts as *Pending*. The reviewer approves or rejects each one, can edit any field inline, and leaves a comment on rejected cases. **Regenerate rejected with feedback** sends those cases and comments back to the model, which rewrites them (revision 2, 3, …) and returns them to the queue as *Pending*.
-5. **Sign off and download.** The download stays locked until nothing is pending, at least one case is approved, and the reviewer enters their name. The Excel test pack has five sheets:
-   - **Test Cases**: approved cases only, with ID, linked requirement, type, priority, preconditions, numbered steps, test data, expected result, revision, reviewer comment, plus *Status* (dropdown) and *Actual Result* columns for execution
+4. **Review and approve (human in the loop).** Every generated test case has an **Approve** checkbox (with *Select all* / *Clear all*). The reviewer ticks the ones they accept and can edit any field inline. Not happy with some? Write what should change and click **Regenerate unticked**: the model rewrites those cases from the feedback (revision 2, 3, …) for another review.
+5. **Sign off and download.** The download stays locked until at least one case is approved and the reviewer enters their name. Only ticked cases are exported. The Excel test pack has five sheets:
+   - **Test Cases**: approved cases only, with ID, linked requirement, type, priority, preconditions, numbered steps, test data, expected result, revision, plus *Status* (dropdown) and *Actual Result* columns for execution
    - **Traceability**: requirement → approved test case IDs, types covered, coverage flag
    - **Requirements**: each requirement with its source quote from the BRD
-   - **Rejected**: audit trail of every rejected case and the reviewer's reason
-   - **Summary**: who signed off, rejected count, and live formulas for coverage and pass/fail counts as testers fill in results
+   - **Not Approved**: audit trail of every case the reviewer didn't approve, with their feedback
+   - **Summary**: who signed off, not-approved count, and live formulas for coverage and pass/fail counts as testers fill in results
 
 ## How it works
 
@@ -33,8 +33,8 @@ flowchart LR
     G -- top-k passages per requirement --> H
     H --> I[LLM: generate test cases<br/>strict JSON schema]
     I --> J[Validate + number<br/>TC-001…]
-    J --> R{Human review<br/>approve · edit · reject}
-    R -- rejected + comment --> V[LLM: revise from feedback]
+    J --> R{Human review<br/>tick to approve · edit}
+    R -- unticked + feedback --> V[LLM: revise from feedback]
     V --> R
     R -- all reviewed + sign-off --> K[Traceability matrix]
     K --> L[Excel test pack<br/>approved only]
@@ -47,7 +47,7 @@ flowchart LR
 | A single similarity search only sees a few chunks, so most of a long BRD gets no tests | Extract requirements across the **whole** document first, then retrieve context **per requirement** |
 | Free-text LLM output is fragile to parse | Groq **strict JSON-schema** structured output, validated with Pydantic. No regex parsing |
 | LLMs invent features | Prompts restrict tests to the retrieved context; test cases pointing at unknown requirement IDs are dropped |
-| Hard to trust AI output | Two human checkpoints: requirements are reviewed before generation, and every test case must be approved before export. Rejected cases are rewritten from the reviewer's comments. Source quotes, a traceability matrix and a rejected-case audit sheet |
+| Hard to trust AI output | Two human checkpoints: requirements are reviewed before generation, and only test cases a person ticks as approved are exported. Unticked cases can be rewritten from the reviewer's feedback. Source quotes, a traceability matrix and a not-approved audit sheet |
 | Free-tier rate limits | Small batches, automatic retry with backoff on HTTP 429, a lighter 20B model option |
 | Uploaded docs may contain prompt-injection text | Document content is fenced and the model is told to treat it as data |
 | Public demo fetching arbitrary URLs | Only public http(s) hosts; localhost and private networks are blocked |
