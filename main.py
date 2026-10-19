@@ -15,7 +15,12 @@ from tcgen import config
 from tcgen.export import build_workbook
 from tcgen.llm import GroqLLM
 from tcgen.loaders import DocumentError, read_upload, read_url
-from tcgen.pipeline import extract_requirements, generate_test_cases, traceability
+from tcgen.pipeline import (
+    extract_requirements,
+    generate_test_cases,
+    missing_ids,
+    traceability,
+)
 from tcgen.rag import DocumentIndex, FastEmbedder
 from tcgen.schemas import Requirement
 
@@ -188,6 +193,12 @@ st.caption(
     f"{len(reqs)} requirements found. Edit any text, untick ones to skip, "
     "or add rows for anything that was missed."
 )
+gaps = missing_ids(doc_text, reqs)
+if gaps:
+    st.warning(
+        f"These IDs appear in the BRD but no requirement was extracted for them: "
+        f"{', '.join(gaps)}. Add them as rows below if they're real requirements."
+    )
 req_df = pd.DataFrame(
     [{"Include": True, **r.model_dump(exclude={"source_excerpt"})} for r in reqs]
 )

@@ -17,8 +17,8 @@ TOP_K_PER_REQUIREMENT = 3
 
 # Requirement extraction reads the document in sections this large (characters).
 # Kept small so each call stays well inside Groq free-tier tokens-per-minute limits.
-EXTRACTION_SECTION_SIZE = 6000
-EXTRACTION_SECTION_OVERLAP = 400
+EXTRACTION_SECTION_SIZE = 3000
+EXTRACTION_SECTION_OVERLAP = 300
 
 # How many requirements go into one generation call.
 GENERATION_BATCH_SIZE = 3
