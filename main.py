@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from tcgen import config
 from tcgen.export import build_workbook
-from tcgen.llm import GroqLLM
+from tcgen.llm import GroqLLM, is_bad_generation
 from tcgen.loaders import DocumentError, read_upload, read_url
 from tcgen.pipeline import (
     extract_requirements,
@@ -165,6 +165,8 @@ def run_safely(fn, *args, **kwargs):
         msg = str(e)
         if "401" in msg or "invalid_api_key" in msg.lower():
             st.error("Groq rejected the API key. Check it in the sidebar.")
+        elif is_bad_generation(e):
+            st.error("The model returned an incomplete answer three times. Click the button again, or switch to the 20B model.")
         elif "429" in msg or "rate" in msg.lower():
             st.error("Groq's rate limit was reached. Wait a minute, or switch to the 20B model.")
         else:
