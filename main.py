@@ -5,6 +5,7 @@ Flow: load a BRD -> extract requirements (review/edit) -> generate test cases ->
 
 import hashlib
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -19,10 +20,13 @@ from tcgen.pipeline import (
     extract_requirements,
     generate_test_cases,
     missing_ids,
+    ready_to_export,
+    review_summary,
+    revise_test_cases,
     traceability,
 )
 from tcgen.rag import DocumentIndex, FastEmbedder
-from tcgen.schemas import Requirement
+from tcgen.schemas import Requirement, TestCase
 
 SAMPLE_BRD = Path(__file__).parent / "samples" / "sample_brd.pdf"
 load_dotenv()  # lets local runs read GROQ_API_KEY from .env
@@ -56,12 +60,72 @@ def get_index(text: str) -> DocumentIndex:
 def reset_from(stage: str) -> None:
     """Clear everything downstream of a stage when its input changes."""
     keys = {
-        "document": ["doc_text", "doc_name", "requirements", "test_cases"],
+        "document": ["doc_text", "doc_name", "requirements", "test_cases", "superseded"],
         "requirements": ["requirements", "test_cases"],
         "test_cases": ["test_cases"],
     }[stage]
     for k in keys:
         st.session_state.pop(k, None)
+
+
+STATUS_LABEL = {"Pending": "⏳ Pending", "Approved": "✅ Approved", "Rejected": "❌ Rejected"}
+LABEL_STATUS = {v: k for k, v in STATUS_LABEL.items()}
+
+
+def set_test_cases(tcs: list[TestCase]) -> None:
+    """Replace the review set and remount the review table so it shows the new data."""
+    st.session_state.test_cases = tcs
+    st.session_state.review_version = st.session_state.get("review_version", 0) + 1
+
+
+def tcs_to_df(tcs: list[TestCase]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Decision": STATUS_LABEL.get(tc.review_status, STATUS_LABEL["Pending"]),
+                "Comment": tc.reviewer_comment,
+                "ID": tc.id,
+                "Req": tc.requirement_id,
+                "Rev": tc.revision,
+                "Title": tc.title,
+                "Type": tc.test_type,
+                "Priority": tc.priority,
+                "Preconditions": tc.preconditions,
+                "Steps": "\n".join(f"{i}. {s}" for i, s in enumerate(tc.steps, 1)),
+                "Test data": tc.test_data,
+                "Expected result": tc.expected_result,
+            }
+            for tc in tcs
+        ]
+    )
+
+
+def _text(v) -> str:
+    return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+
+def df_to_tcs(df: pd.DataFrame) -> list[TestCase]:
+    """Read the review table back, including any inline edits the reviewer made."""
+    out = []
+    for row in df.to_dict("records"):
+        steps = [re.sub(r"^\s*\d+[.)]\s*", "", line).strip() for line in _text(row["Steps"]).splitlines()]
+        out.append(
+            TestCase(
+                id=_text(row["ID"]),
+                requirement_id=_text(row["Req"]),
+                revision=int(row["Rev"] or 1),
+                title=_text(row["Title"]),
+                test_type=_text(row["Type"]),
+                priority=_text(row["Priority"]),
+                preconditions=_text(row["Preconditions"]),
+                steps=[s for s in steps if s],
+                test_data=_text(row["Test data"]),
+                expected_result=_text(row["Expected result"]),
+                review_status=LABEL_STATUS.get(row["Decision"], "Pending"),
+                reviewer_comment=_text(row["Comment"]),
+            )
+        )
+    return out
 
 
 def progress_bar(label: str):
@@ -266,57 +330,129 @@ if st.button(
         per_req,
         progress=progress_bar(f"Generating ({calls} calls to Groq)…"),
     )
-    st.session_state.test_cases = tcs
+    set_test_cases(tcs)
     st.session_state.generated_for = selected
+    st.session_state.superseded = []
 
 if "test_cases" not in st.session_state:
     st.stop()
 
 
-# ---------------------------------------------------------------- results
+# ---------------------------------------------------------------- step 4: human review
 
-tcs = st.session_state.test_cases
-used_reqs = st.session_state.generated_for
-trace = traceability(used_reqs, tcs)
+used_reqs: list[Requirement] = st.session_state.generated_for
+
+st.subheader("4 · Review and approve")
+st.caption(
+    "Nothing is exported until a person has reviewed it. Set each test case to "
+    "**Approved** or **Rejected**, edit any text inline, and leave a comment on rejected "
+    "ones. The model can rewrite rejected cases using your comments."
+)
+
+if flash := st.session_state.pop("flash", None):
+    st.success(flash, icon="🔁")
+
+base: list[TestCase] = st.session_state.test_cases
+edited = st.data_editor(
+    tcs_to_df(base),
+    key=f"review_{st.session_state.review_version}",
+    num_rows="fixed",
+    hide_index=True,
+    width="stretch",
+    disabled=["ID", "Req", "Rev"],
+    column_config={
+        "Decision": st.column_config.SelectboxColumn(
+            "Decision", options=list(STATUS_LABEL.values()), required=True, width=125, pinned=True
+        ),
+        "ID": st.column_config.TextColumn(width="small", pinned=True),
+        "Req": st.column_config.TextColumn(width="small"),
+        "Rev": st.column_config.NumberColumn(width="small", help="Revision: goes up each time the model rewrites a test from feedback"),
+        "Title": st.column_config.TextColumn(width="medium"),
+        "Steps": st.column_config.TextColumn(width="large"),
+        "Expected result": st.column_config.TextColumn(width="medium"),
+        "Comment": st.column_config.TextColumn(
+            "Reviewer comment", width="medium", pinned=True,
+            help="Why it was rejected; sent to the model when regenerating",
+        ),
+    },
+)
+current = df_to_tcs(edited)
+counts = review_summary(current)
+approved = [tc for tc in current if tc.review_status == "Approved"]
+trace = traceability(used_reqs, approved)
 covered = sum(1 for t in trace if t["Coverage"] == "Covered")
 
-st.subheader("Results")
-m1, m2, m3 = st.columns(3)
-m1.metric("Requirements", len(used_reqs))
-m2.metric("Test cases", len(tcs))
-m3.metric("Coverage", f"{covered / len(used_reqs):.0%}" if used_reqs else "–")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("✅ Approved", counts["Approved"])
+m2.metric("❌ Rejected", counts["Rejected"])
+m3.metric("⏳ Pending", counts["Pending"])
+m4.metric("Approved coverage", f"{covered / len(used_reqs):.0%}" if used_reqs else "–")
 
-t_cases, t_trace = st.tabs(["Test cases", "Traceability matrix"])
-with t_cases:
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "ID": tc.id,
-                    "Req": tc.requirement_id,
-                    "Title": tc.title,
-                    "Type": tc.test_type,
-                    "Priority": tc.priority,
-                    "Preconditions": tc.preconditions,
-                    "Steps": "\n".join(f"{i}. {s}" for i, s in enumerate(tc.steps, 1)),
-                    "Test data": tc.test_data,
-                    "Expected result": tc.expected_result,
-                }
-                for tc in tcs
-            ]
-        ),
-        width="stretch",
-        hide_index=True,
+b1, b2, b3 = st.columns(3)
+if b1.button(f"Approve all pending ({counts['Pending']})", disabled=not counts["Pending"]):
+    set_test_cases(
+        [tc.model_copy(update={"review_status": "Approved"}) if tc.review_status == "Pending" else tc for tc in current]
     )
-with t_trace:
+    st.rerun()
+
+rejected = [tc for tc in current if tc.review_status == "Rejected"]
+if b2.button(
+    f"Regenerate {len(rejected)} rejected with feedback",
+    disabled=not rejected,
+    type="primary" if rejected else "secondary",
+):
+    all_ids = [tc.id for tc in current + st.session_state.superseded]
+    next_number = max(int(i.split("-")[-1]) for i in all_ids if i.split("-")[-1].isdigit()) + 1
+    replacements = run_safely(
+        revise_test_cases,
+        rejected,
+        used_reqs,
+        run_safely(get_index, doc_text),
+        llm,
+        next_number,
+        progress=progress_bar("Rewriting rejected test cases from your comments…"),
+    )
+    st.session_state.superseded += [tc for tc in rejected if tc.id in replacements]
+    set_test_cases([replacements.get(tc.id, tc) for tc in current])
+    st.session_state.flash = (
+        f"{len(replacements)} test case(s) rewritten from your feedback and sent back for review as Pending. "
+        "The rejected originals are kept on the Rejected sheet of the export."
+    )
+    st.rerun()
+
+if b3.button("Reset all to pending"):
+    set_test_cases([tc.model_copy(update={"review_status": "Pending"}) for tc in current])
+    st.rerun()
+
+uncovered = [t["Requirement ID"] for t in trace if t["Coverage"] != "Covered"]
+if uncovered and not counts["Pending"]:
+    st.warning(f"No approved test case for: {', '.join(uncovered)}", icon="⚠️")
+
+with st.expander("Traceability matrix (approved test cases)"):
     st.dataframe(pd.DataFrame(trace), width="stretch", hide_index=True)
+
+
+# ---------------------------------------------------------------- step 5: sign off and export
+
+st.subheader("5 · Sign off and download")
+reviewer = st.text_input("Reviewer name", key="reviewer", placeholder="Who approved these test cases?")
+ok, reason = ready_to_export(current, reviewer)
+if ok:
+    st.success(
+        f"Ready: {counts['Approved']} approved test case(s) will be exported, signed off by {reviewer.strip()}.",
+        icon="✅",
+    )
+else:
+    st.info(f"Download locked. {reason}", icon="🔒")
 
 stem = Path(st.session_state.doc_name).stem if "://" not in st.session_state.doc_name else "brd"
 st.download_button(
-    "⬇️ Download Excel test pack",
-    build_workbook(used_reqs, tcs, st.session_state.doc_name, model),
-    file_name=f"{stem}_test_cases.xlsx",
+    "⬇️ Download approved test pack (Excel)",
+    build_workbook(used_reqs, current + st.session_state.superseded, st.session_state.doc_name, model, reviewer.strip())
+    if ok
+    else b"",
+    file_name=f"{stem}_test_cases_approved.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     type="primary",
+    disabled=not ok,
 )
-st.caption("AI-generated. Review each test case before adding it to your suite.")

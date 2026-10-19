@@ -65,6 +65,20 @@ class FakeLLM:
                     ),
                 ]
             )
+        if schema is TestCaseBatch and "REJECTED TEST CASES" in user:
+            # Revision request: one rewrite per rejected case, echoing the feedback it got.
+            rejected = re.findall(r"^\[(TC-\d+)\] requirement (\S+),", user, flags=re.MULTILINE)
+            feedback = re.findall(r"REVIEWER FEEDBACK: (.*)", user)
+            return TestCaseBatch(
+                test_cases=[
+                    GeneratedTestCase(
+                        requirement_id=rid, title=f"Revised {tc_id}: {fb}", test_type="Negative",
+                        priority="High", preconditions="p", steps=["Do the fixed thing"],
+                        test_data="", expected_result="Fixed result",
+                    )
+                    for (tc_id, rid), fb in zip(rejected, feedback)
+                ]
+            )
         if schema is TestCaseBatch:
             ids = re.findall(r"^- \[([^\]]+)\]", user, flags=re.MULTILINE)
             cases = [
