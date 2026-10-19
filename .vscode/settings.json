@@ -1,7 +1,0 @@
-{
-  "python.pythonPath": "/Users/ramkumars/jupyter-env/bin/python",
-  "python.analysis.extraPaths": [
-    "/Users/ramkumars/jupyter-env/lib/python3.13/site-packages"
-  ],
-  "python.analysis.typeCheckingMode": "basic"
-}
