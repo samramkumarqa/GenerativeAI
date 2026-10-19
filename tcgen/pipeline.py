@@ -230,8 +230,8 @@ def _to_test_case(tc: GeneratedTestCase, tc_id: str, revision: int = 1) -> TestC
 
 # ---------------------------------------------------------------- human review loop
 
-REVISE_SYSTEM = """You are a senior QA engineer. A reviewer rejected some of your test cases
-and left feedback. Rewrite each rejected test case so it addresses the feedback.
+REVISE_SYSTEM = """You are a senior QA engineer. A reviewer did not approve some of your test
+cases. Rewrite each one so it addresses the reviewer's feedback.
 
 Rules:
 - Return exactly one rewritten test case per rejected test case, in the same order.
@@ -248,9 +248,12 @@ def revise_test_cases(
     index: DocumentIndex,
     llm: StructuredLLM,
     next_number: int,
+    feedback: str = "",
     progress: Progress = _noop,
 ) -> dict[str, TestCase]:
-    """Rewrite rejected test cases using the reviewer's comments.
+    """Rewrite rejected test cases using the reviewer's feedback.
+
+    ``feedback`` applies to every case; a case's own reviewer_comment, if set, is used first.
 
     Returns {old test case ID: new test case}. New cases get fresh IDs starting at
     TC-{next_number}, a bumped revision and Pending status so they go back for review.
@@ -267,7 +270,7 @@ def revise_test_cases(
             f"[{tc.id}] requirement {tc.requirement_id}, type {tc.test_type}\n"
             f"Title: {tc.title}\nSteps: {' | '.join(tc.steps)}\n"
             f"Expected: {tc.expected_result}\n"
-            f"REVIEWER FEEDBACK: {tc.reviewer_comment or '(none given)'}"
+            f"REVIEWER FEEDBACK: {tc.reviewer_comment or feedback.strip() or '(none given)'}"
             for tc in batch
         )
         user = (
@@ -298,12 +301,9 @@ def review_summary(test_cases: list[TestCase]) -> dict[str, int]:
 
 
 def ready_to_export(test_cases: list[TestCase], reviewer: str) -> tuple[bool, str]:
-    """The download gate: every test case reviewed, at least one approved, reviewer named."""
-    counts = review_summary(test_cases)
-    if counts["Pending"]:
-        return False, f"{counts['Pending']} test case(s) still pending review."
-    if not counts["Approved"]:
-        return False, "Approve at least one test case."
+    """The download gate: at least one test case approved and the reviewer named."""
+    if not review_summary(test_cases)["Approved"]:
+        return False, "Tick Approve on at least one test case."
     if not reviewer.strip():
         return False, "Enter the reviewer's name to sign off."
     return True, ""

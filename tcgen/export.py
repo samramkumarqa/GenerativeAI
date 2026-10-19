@@ -49,12 +49,12 @@ def build_workbook(
     model: str = "",
     reviewer: str = "",
 ) -> bytes:
-    """Approved test cases go in the pack; rejected ones are kept on their own sheet for audit.
+    """Approved test cases go in the pack; the rest are kept on a Not Approved sheet for audit.
 
     Test cases with no review status set (e.g. from older callers) count as approved.
     """
     approved = [tc for tc in test_cases if tc.review_status in ("Approved", "")]
-    rejected = [tc for tc in test_cases if tc.review_status == "Rejected"]
+    rejected = [tc for tc in test_cases if tc.review_status not in ("Approved", "")]
     wb = Workbook()
 
     # ---- Summary (formulas, so it stays right if the tester edits the sheets)
@@ -68,7 +68,7 @@ def build_workbook(
         ("Reviewed and approved by", reviewer or "—"),
         ("Requirements", f"=COUNTA(Traceability!A2:A{n_req})"),
         ("Approved test cases", f"=COUNTA('Test Cases'!A2:A{n_tc})"),
-        ("Rejected by reviewer", len(rejected)),
+        ("Not approved", len(rejected)),
         ("Requirements covered", f'=COUNTIF(Traceability!H2:H{n_req},"Covered")'),
         ("Coverage", None),
         ("Passed", f"=COUNTIF('Test Cases'!J2:J{n_tc},\"Pass\")"),
@@ -97,17 +97,17 @@ def build_workbook(
     headers = [
         "Test Case ID", "Requirement ID", "Title", "Type", "Priority",
         "Preconditions", "Steps", "Test Data", "Expected Result", "Status", "Actual Result",
-        "Revision", "Reviewer Comment",
+        "Revision",
     ]
     rows = [
         [
             tc.id, tc.requirement_id, tc.title, tc.test_type, tc.priority, tc.preconditions,
             _steps(tc), tc.test_data, tc.expected_result, "Not Run", "",
-            tc.revision, tc.reviewer_comment,
+            tc.revision,
         ]
         for tc in approved
     ]
-    _table(ws, headers, rows, [13, 14, 40, 13, 10, 30, 55, 25, 45, 11, 30, 10, 35])
+    _table(ws, headers, rows, [13, 14, 40, 13, 10, 30, 55, 25, 45, 11, 30, 10])
     if rows:
         dv = DataValidation(
             type="list", formula1='"' + ",".join(config.EXECUTION_STATUSES) + '"', allow_blank=True
@@ -133,11 +133,11 @@ def build_workbook(
         [14, 35, 60, 15, 10, 60],
     )
 
-    # ---- Rejected (audit trail of what the reviewer turned down, and why)
-    ws = wb.create_sheet("Rejected")
+    # ---- Not Approved (audit trail of what the reviewer didn't approve, and their feedback)
+    ws = wb.create_sheet("Not Approved")
     _table(
         ws,
-        ["Test Case ID", "Requirement ID", "Title", "Type", "Steps", "Expected Result", "Reviewer Comment"],
+        ["Test Case ID", "Requirement ID", "Title", "Type", "Steps", "Expected Result", "Reviewer Feedback"],
         [
             [tc.id, tc.requirement_id, tc.title, tc.test_type, _steps(tc), tc.expected_result, tc.reviewer_comment]
             for tc in rejected
