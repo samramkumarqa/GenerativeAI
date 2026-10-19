@@ -334,119 +334,129 @@ if "test_cases" not in st.session_state:
 
 # ---------------------------------------------------------------- step 4: human review
 
-used_reqs: list[Requirement] = st.session_state.generated_for
-
-st.subheader("4 · Review and approve")
-st.caption(
-    "Tick **Approve** for each test case you're happy with. You can also edit any text "
-    "in the table. Only ticked test cases are exported."
-)
-
-if flash := st.session_state.pop("flash", None):
-    st.success(flash, icon="🔁")
-
-base: list[TestCase] = st.session_state.test_cases
-s1, s2, _ = st.columns([1, 1, 4])
-if s1.button("☑ Select all"):
-    set_test_cases([tc.model_copy(update={"review_status": "Approved"}) for tc in base])
-    st.rerun()
-if s2.button("☐ Clear all"):
-    set_test_cases([tc.model_copy(update={"review_status": "Pending"}) for tc in base])
-    st.rerun()
-
-edited = st.data_editor(
-    tcs_to_df(base),
-    key=f"review_{st.session_state.review_version}",
-    num_rows="fixed",
-    hide_index=True,
-    width="stretch",
-    disabled=["ID", "Req", "Rev"],
-    column_config={
-        "Approve": st.column_config.CheckboxColumn("✅ Approve", width=95, pinned=True),
-        "ID": st.column_config.TextColumn(width="small", pinned=True),
-        "Req": st.column_config.TextColumn(width="small"),
-        "Rev": st.column_config.NumberColumn(
-            width="small", help="Revision: goes up each time the model rewrites a test case"
-        ),
-        "Title": st.column_config.TextColumn(width="large"),
-        "Steps": st.column_config.TextColumn(width="large"),
-        "Expected result": st.column_config.TextColumn(width="medium"),
-    },
-)
-current = df_to_tcs(edited)
-counts = review_summary(current)
-approved = [tc for tc in current if tc.review_status == "Approved"]
-not_approved = [tc for tc in current if tc.review_status != "Approved"]
-trace = traceability(used_reqs, approved)
-covered = sum(1 for t in trace if t["Coverage"] == "Covered")
-
-m1, m2, m3 = st.columns(3)
-m1.metric("✅ Approved", len(approved))
-m2.metric("☐ Not approved", len(not_approved))
-m3.metric("Approved coverage", f"{covered / len(used_reqs):.0%}" if used_reqs else "–")
-
-uncovered = [t["Requirement ID"] for t in trace if t["Coverage"] != "Covered"]
-if approved and uncovered:
-    st.warning(f"No approved test case yet for: {', '.join(uncovered)}", icon="⚠️")
-
-with st.expander("Traceability matrix (approved test cases)"):
-    st.dataframe(pd.DataFrame(trace), width="stretch", hide_index=True)
-
-if not_approved:
-    with st.expander(f"Not happy with some? Ask the model to rewrite the {len(not_approved)} unticked test case(s)"):
-        feedback = st.text_area(
-            "What should change? (optional)",
-            key="feedback",
-            placeholder="e.g. Use exact boundary values like INR 199 and INR 198; add an invalid input case.",
-            height=80,
-        )
-        if st.button(f"🔁 Regenerate {len(not_approved)} unticked"):
-            all_ids = [tc.id for tc in current + st.session_state.superseded]
-            next_number = max(int(i.split("-")[-1]) for i in all_ids if i.split("-")[-1].isdigit()) + 1
-            replacements = run_safely(
-                revise_test_cases,
-                not_approved,
-                used_reqs,
-                run_safely(get_index, doc_text),
-                llm,
-                next_number,
-                feedback=feedback,
-                progress=progress_bar("Rewriting the unticked test cases…"),
-            )
-            st.session_state.superseded += [
-                tc.model_copy(update={"reviewer_comment": feedback.strip()})
-                for tc in not_approved
-                if tc.id in replacements
-            ]
-            set_test_cases([replacements.get(tc.id, tc) for tc in current])
-            st.session_state.flash = (
-                f"{len(replacements)} test case(s) rewritten. Review them and tick the ones you approve. "
-                "The originals are kept on the Not Approved sheet of the export."
-            )
-            st.rerun()
+# The review and sign-off steps run as a fragment: ticking a box reruns only this part of
+# the page instead of the whole app, so it's faster and the page doesn't jump around.
 
 
-# ---------------------------------------------------------------- step 5: sign off and export
+@st.fragment
+def review_and_export() -> None:
 
-st.subheader("5 · Sign off and download")
-reviewer = st.text_input("Reviewer name", key="reviewer", placeholder="Who approved these test cases?")
-ok, reason = ready_to_export(current, reviewer)
-if ok:
-    st.success(
-        f"Ready: {len(approved)} approved test case(s) will be exported, signed off by {reviewer.strip()}.",
-        icon="✅",
+    used_reqs: list[Requirement] = st.session_state.generated_for
+
+    st.subheader("4 · Review and approve")
+    st.caption(
+        "Tick **Approve** for each test case you're happy with. You can also edit any text "
+        "in the table. Only ticked test cases are exported."
     )
-else:
-    st.info(f"Download locked. {reason}", icon="🔒")
 
-stem = Path(st.session_state.doc_name).stem if "://" not in st.session_state.doc_name else "brd"
-st.download_button(
-    f"⬇️ Download {len(approved)} approved test cases (Excel)",
-    build_workbook(used_reqs, current + st.session_state.superseded, st.session_state.doc_name, model, reviewer.strip())
-    if ok
-    else b"",
-    file_name=f"{stem}_test_cases_approved.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    type="primary",
-    disabled=not ok,
-)
+    if flash := st.session_state.pop("flash", None):
+        st.success(flash, icon="🔁")
+
+    base: list[TestCase] = st.session_state.test_cases
+    s1, s2, _ = st.columns([1, 1, 4])
+    if s1.button("☑ Select all"):
+        set_test_cases([tc.model_copy(update={"review_status": "Approved"}) for tc in base])
+        st.rerun(scope="fragment")
+    if s2.button("☐ Clear all"):
+        set_test_cases([tc.model_copy(update={"review_status": "Pending"}) for tc in base])
+        st.rerun(scope="fragment")
+
+    edited = st.data_editor(
+        tcs_to_df(base),
+        key=f"review_{st.session_state.review_version}",
+        num_rows="fixed",
+        hide_index=True,
+        width="stretch",
+        disabled=["ID", "Req", "Rev"],
+        column_config={
+            "Approve": st.column_config.CheckboxColumn("✅", width=50, pinned=True, help="Tick to approve"),
+            "ID": st.column_config.TextColumn(width="small", pinned=True),
+            "Req": st.column_config.TextColumn(width="small"),
+            "Rev": st.column_config.NumberColumn(
+                width="small", help="Revision: goes up each time the model rewrites a test case"
+            ),
+            "Title": st.column_config.TextColumn(width="large"),
+            "Steps": st.column_config.TextColumn(width="large"),
+            "Expected result": st.column_config.TextColumn(width="medium"),
+        },
+    )
+    current = df_to_tcs(edited)
+    counts = review_summary(current)
+    approved = [tc for tc in current if tc.review_status == "Approved"]
+    not_approved = [tc for tc in current if tc.review_status != "Approved"]
+    trace = traceability(used_reqs, approved)
+    covered = sum(1 for t in trace if t["Coverage"] == "Covered")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("✅ Approved", len(approved))
+    m2.metric("☐ Not approved", len(not_approved))
+    m3.metric("Approved coverage", f"{covered / len(used_reqs):.0%}" if used_reqs else "–")
+
+    uncovered = [t["Requirement ID"] for t in trace if t["Coverage"] != "Covered"]
+    if approved and uncovered:
+        st.warning(f"No approved test case yet for: {', '.join(uncovered)}", icon="⚠️")
+
+    with st.expander("Traceability matrix (approved test cases)"):
+        st.dataframe(pd.DataFrame(trace), width="stretch", hide_index=True)
+
+    if not_approved:
+        with st.expander(f"Not happy with some? Ask the model to rewrite the {len(not_approved)} unticked test case(s)"):
+            feedback = st.text_area(
+                "What should change? (optional)",
+                key="feedback",
+                placeholder="e.g. Use exact boundary values like INR 199 and INR 198; add an invalid input case.",
+                height=80,
+            )
+            if st.button(f"🔁 Regenerate {len(not_approved)} unticked"):
+                all_ids = [tc.id for tc in current + st.session_state.superseded]
+                next_number = max(int(i.split("-")[-1]) for i in all_ids if i.split("-")[-1].isdigit()) + 1
+                replacements = run_safely(
+                    revise_test_cases,
+                    not_approved,
+                    used_reqs,
+                    run_safely(get_index, doc_text),
+                    llm,
+                    next_number,
+                    feedback=feedback,
+                    progress=progress_bar("Rewriting the unticked test cases…"),
+                )
+                st.session_state.superseded += [
+                    tc.model_copy(update={"reviewer_comment": feedback.strip()})
+                    for tc in not_approved
+                    if tc.id in replacements
+                ]
+                set_test_cases([replacements.get(tc.id, tc) for tc in current])
+                st.session_state.flash = (
+                    f"{len(replacements)} test case(s) rewritten. Review them and tick the ones you approve. "
+                    "The originals are kept on the Not Approved sheet of the export."
+                )
+                st.rerun(scope="fragment")
+
+
+    # ---------------------------------------------------------------- step 5: sign off and export
+
+    st.subheader("5 · Sign off and download")
+    reviewer = st.text_input("Reviewer name", key="reviewer", placeholder="Who approved these test cases?")
+    ok, reason = ready_to_export(current, reviewer)
+    if ok:
+        st.success(
+            f"Ready: {len(approved)} approved test case(s) will be exported, signed off by {reviewer.strip()}.",
+            icon="✅",
+        )
+    else:
+        st.info(f"Download locked. {reason}", icon="🔒")
+
+    stem = Path(st.session_state.doc_name).stem if "://" not in st.session_state.doc_name else "brd"
+    st.download_button(
+        f"⬇️ Download {len(approved)} approved test cases (Excel)",
+        build_workbook(used_reqs, current + st.session_state.superseded, st.session_state.doc_name, model, reviewer.strip())
+        if ok
+        else b"",
+        file_name=f"{stem}_test_cases_approved.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+        disabled=not ok,
+    )
+
+
+review_and_export()
