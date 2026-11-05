@@ -106,3 +106,16 @@ def test_regenerate_unticked_with_feedback(monkeypatch):
 
     at.text_input(key="reviewer").input("Ramkumar").run()
     assert not _download(at).disabled  # 13 approved is enough; the unticked one is left out
+
+
+def test_recording_tab_and_transcript_preview(monkeypatch):
+    at = _app(monkeypatch).run()
+    assert [t.label for t in at.tabs][:4] == ["Upload file", "🎙️ Recording", "From URL", "Try a sample"]
+    assert any(r.label == "Spoken language" for r in at.radio)
+    at.session_state["doc_text"] = "TRANSCRIPT OF RECORDING: kickoff.mp4 (duration 00:10:00)\n\n" + \
+        "[00:01:05] The coupon applies only above 500 rupees. " * 10
+    at.session_state["doc_name"] = "kickoff.mp4"
+    at.run()
+    assert not at.exception
+    assert any(e.label == "Preview transcript" for e in at.expander)
+    assert any(b.proto.label == "Download transcript (.txt)" for b in at.get("download_button"))

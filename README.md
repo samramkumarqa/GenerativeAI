@@ -1,14 +1,18 @@
 # 🧪 AI Test Case Generator
 
-Turn a Business Requirements Document into **traceable, ready-to-run test cases**, exported as an Excel test pack.
+Turn a Business Requirements Document, or a **recording of a requirements meeting**, into **traceable, ready-to-run test cases**, exported as an Excel test pack.
 
-**[Live demo](https://apptestcasegenerator.streamlit.app/)** · Python · Groq (GPT-OSS 120B) · FAISS · fastembed · Streamlit
+**[Live demo](https://apptestcasegenerator.streamlit.app/)** · Python · Groq (GPT-OSS 120B, Whisper) · FAISS · fastembed · ffmpeg · Streamlit
 
 ---
 
 ## What it does
 
-1. **Load a BRD** as PDF, Word, text or a public URL. A sample BRD is built in.
+1. **Load a BRD** as PDF, Word, text or a public URL (a sample BRD is built in), **or upload a recording**:
+   a requirements meeting, walkthrough or demo video (MP4, MOV, WEBM, M4A, MP3, WAV…, up to 60 minutes).
+   ffmpeg extracts the audio, **Groq Whisper** transcribes it (or translates it to English, e.g. a Tamil or
+   Hindi meeting), and the timestamped transcript becomes the BRD. Each extracted requirement quotes the
+   **[hh:mm:ss]** moment it was said, so testers can jump back to the recording.
 2. **Extract requirements.** The LLM reads the whole document section by section and lists every testable requirement, keeping the BRD's own IDs (e.g. `FR-03`) and a verbatim source quote. You review, edit, untick or add requirements before anything is generated.
 3. **Generate test cases per requirement.** For each batch of requirements, the passages of the BRD that describe them are retrieved with FAISS and passed to the model as context (RAG), so test cases use the document's real rules and values.
 4. **Review and approve (human in the loop).** Every generated test case has an **Approve** checkbox (with *Select all* / *Clear all*). The reviewer ticks the ones they accept and can edit any field inline. Not happy with some? Write what should change and click **Regenerate unticked**: the model rewrites those cases from the feedback (revision 2, 3, …) for another review.
@@ -24,6 +28,7 @@ Turn a Business Requirements Document into **traceable, ready-to-run test cases*
 ```mermaid
 flowchart LR
     A[BRD<br/>PDF · DOCX · URL] --> B[Text extraction]
+    M[Recording<br/>MP4 · MOV · M4A] --> W[ffmpeg audio chunks<br/>Groq Whisper] --> B
     B --> C[Section splitter]
     C --> D[LLM: extract requirements<br/>strict JSON schema]
     D --> E[Human review<br/>edit · untick · add]
@@ -50,6 +55,8 @@ flowchart LR
 | Hard to trust AI output | Two human checkpoints: requirements are reviewed before generation, and only test cases a person ticks as approved are exported. Unticked cases can be rewritten from the reviewer's feedback. Source quotes, a traceability matrix and a not-approved audit sheet |
 | Free-tier rate limits | Small batches, automatic retry with backoff on HTTP 429, a lighter 20B model option |
 | Uploaded docs may contain prompt-injection text | Document content is fenced and the model is told to treat it as data |
+| Long videos are too big for the speech API | ffmpeg keeps only the audio as 32 kbps mono MP3 in 10-minute chunks (≈2.4 MB each, far under Groq's 25 MB limit); timestamps are offset per chunk |
+| Meetings ramble | The extraction prompt knows it's reading a transcript: it ignores small talk, captures what the speakers agree on, and quotes the timestamp |
 | Public demo fetching arbitrary URLs | Only public http(s) hosts; localhost and private networks are blocked |
 
 ## Run locally
@@ -64,7 +71,11 @@ cp .env.example .env          # then paste your free key from https://console.gr
 streamlit run main.py
 ```
 
-The first run downloads a small embedding model (~70 MB), then caches it.
+The first run downloads a small embedding model (~70 MB), then caches it. ffmpeg comes bundled with the
+`imageio-ffmpeg` package, so recordings work on macOS, Windows and Streamlit Cloud without installing anything.
+
+**Demo recording:** read [`samples/recording_script.md`](samples/recording_script.md) aloud into your phone
+(about 2 minutes) and upload it in the 🎙️ Recording tab.
 
 ## Deploy on Streamlit Community Cloud
 

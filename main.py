@@ -16,6 +16,7 @@ from tcgen import config
 from tcgen.export import build_workbook
 from tcgen.llm import GroqLLM, is_bad_generation
 from tcgen.loaders import DocumentError, read_upload, read_url
+from tcgen import recording
 from tcgen.pipeline import (
     extract_requirements,
     generate_test_cases,
@@ -145,8 +146,8 @@ with st.sidebar:
     )
     st.divider()
     st.caption(
-        "Documents are sent to Groq for processing. Don't upload confidential BRDs "
-        "to the public demo."
+        "Documents and recordings are sent to Groq for processing. Don't upload "
+        "confidential BRDs or meetings to the public demo."
     )
     st.caption("Built with Groq · FAISS · fastembed · Streamlit")
 
@@ -155,7 +156,8 @@ with st.sidebar:
 
 st.title("🧪 AI Test Case Generator")
 st.markdown(
-    "Turn a Business Requirements Document into **traceable test cases**. "
+    "Turn a Business Requirements Document, or a **recording of a requirements meeting**, into "
+    "**traceable test cases**. "
     "Every requirement is extracted first so you can review it, then test cases are "
     "generated for each one from the passages of the BRD that describe it (RAG)."
 )
@@ -164,7 +166,7 @@ st.markdown(
 # ---------------------------------------------------------------- step 1: document
 
 st.subheader("1 · Load your BRD")
-tab_file, tab_url, tab_sample = st.tabs(["Upload file", "From URL", "Try a sample"])
+tab_file, tab_rec, tab_url, tab_sample = st.tabs(["Upload file", "🎙️ Recording", "From URL", "Try a sample"])
 
 with tab_file:
     upload = st.file_uploader("PDF, Word, TXT or Markdown", type=["pdf", "docx", "txt", "md"])
@@ -175,6 +177,34 @@ with tab_file:
             st.session_state.doc_text, st.session_state.doc_name = text, upload.name
         except DocumentError as e:
             st.error(str(e))
+
+with tab_rec:
+    st.write(
+        "Upload a **requirements meeting, walkthrough or demo video**. The speech is transcribed with "
+        "Groq Whisper and the transcript is used as the BRD. Requirements keep the **[hh:mm:ss]** "
+        "timestamp where they were said. Only spoken words are captured, not what's shown on screen."
+    )
+    rec = st.file_uploader(
+        f"Video or audio, up to {config.MAX_RECORDING_SECONDS // 60} minutes",
+        type=[t.lstrip(".") for t in config.RECORDING_TYPES], key="rec_upload",
+    )
+    lang = st.radio(
+        "Spoken language", ["Auto-detect (keep the original language)", "Translate to English"],
+        horizontal=True, help="Choose Translate if the meeting is in Tamil, Hindi or another language.",
+    )
+    if rec and st.button("Transcribe recording", key="use_rec"):
+        if not key:
+            st.warning("Add a Groq API key in the sidebar first; transcription uses it too.")
+        else:
+            try:
+                report = progress_bar("Extracting audio…")
+                text = recording.read_recording(
+                    rec.getvalue(), rec.name, key, translate=lang.startswith("Translate"), progress=report,
+                )
+                reset_from("document")
+                st.session_state.doc_text, st.session_state.doc_name = text, rec.name
+            except recording.RecordingError as e:
+                st.error(str(e))
 
 with tab_url:
     url = st.text_input("Public URL of the BRD (web page or PDF)")
@@ -206,8 +236,11 @@ if not doc_text:
 st.info(
     f"**{st.session_state.doc_name}** · {len(doc_text):,} characters loaded", icon="📄"
 )
-with st.expander("Preview extracted text"):
+is_transcript = doc_text.startswith("TRANSCRIPT OF RECORDING:")
+with st.expander("Preview transcript" if is_transcript else "Preview extracted text", expanded=is_transcript):
     st.text(doc_text[:5000] + ("\n…" if len(doc_text) > 5000 else ""))
+    if is_transcript:
+        st.download_button("Download transcript (.txt)", doc_text, Path(st.session_state.doc_name).stem + "_transcript.txt")
 
 if not key:
     st.warning("Add a Groq API key in the sidebar to continue.")

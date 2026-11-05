@@ -43,3 +43,10 @@ TEST_TYPES = [
 DEFAULT_TEST_TYPES = ["Functional", "Negative", "Boundary"]
 
 EXECUTION_STATUSES = ["Not Run", "Pass", "Fail", "Blocked"]
+
+# Recordings (meetings, walkthroughs, demo videos) are transcribed with Groq Whisper.
+RECORDING_TYPES = [".mp4", ".mov", ".mkv", ".webm", ".m4a", ".mp3", ".wav", ".ogg", ".mpeg"]
+TRANSCRIBE_MODEL = "whisper-large-v3-turbo"   # fast, keeps the spoken language
+TRANSLATE_MODEL = "whisper-large-v3"          # translations to English need the full model
+AUDIO_CHUNK_SECONDS = 600                      # 10-minute chunks ≈ 2.4 MB each, far below Groq's 25 MB limit
+MAX_RECORDING_SECONDS = 60 * 60                # keeps a run inside the free tier's audio limits
