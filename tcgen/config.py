@@ -50,3 +50,6 @@ TRANSCRIBE_MODEL = "whisper-large-v3-turbo"   # fast, keeps the spoken language
 TRANSLATE_MODEL = "whisper-large-v3"          # translations to English need the full model
 AUDIO_CHUNK_SECONDS = 600                      # 10-minute chunks ≈ 2.4 MB each, far below Groq's 25 MB limit
 MAX_RECORDING_SECONDS = 60 * 60                # keeps a run inside the free tier's audio limits
+
+# Next step in the toolkit: turns the exported Excel into a Playwright POM project.
+AUTOMATION_APP_URL = "https://appautomationcodegenerator.streamlit.app/"

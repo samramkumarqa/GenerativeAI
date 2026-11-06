@@ -491,5 +491,13 @@ def review_and_export() -> None:
         disabled=not ok,
     )
 
+    if ok:
+        st.divider()
+        st.markdown(
+            "**Next step: automate these test cases.** Download the Excel above, then upload it in the "
+            "AI Automation Code Generator to get a ready-to-run Playwright (JavaScript) Page Object Model project."
+        )
+        st.link_button("🎭 Generate Playwright automation →", config.AUTOMATION_APP_URL)
+
 
 review_and_export()

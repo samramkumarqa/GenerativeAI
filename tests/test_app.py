@@ -52,15 +52,22 @@ def test_full_flow_with_sample(monkeypatch):
     assert [m.value for m in at.metric] == ["14", "0", "100%"]
     assert _download(at).disabled
     assert any("Enter the reviewer's name" in i.value for i in at.info)
+    assert not _next_app(at)  # the hand-off button appears only once the download is enabled
 
     at.text_input(key="reviewer").input("Ramkumar").run()
     assert not at.exception, at.exception
     assert not _download(at).disabled
     assert any("signed off by Ramkumar" in s.value for s in at.success)
+    assert [b.proto.url for b in _next_app(at)] == ["https://appautomationcodegenerator.streamlit.app/"]
 
     _click_in_review(at, "☐ Clear all")
     assert [m.value for m in at.metric] == ["0", "14", "0%"]
     assert _download(at).disabled
+    assert not _next_app(at)
+
+
+def _next_app(at):
+    return [b for b in at.get("link_button") if "Generate Playwright automation" in b.proto.label]
 
 
 def _download(at):
