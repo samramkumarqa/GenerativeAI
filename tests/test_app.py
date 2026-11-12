@@ -67,7 +67,7 @@ def test_full_flow_with_sample(monkeypatch):
 
 
 def _next_app(at):
-    return [b for b in at.get("link_button") if "Generate Playwright automation" in b.proto.label]
+    return [b for b in at.get("link_button") if "Generate automation scripts" in b.proto.label]
 
 
 def _download(at):

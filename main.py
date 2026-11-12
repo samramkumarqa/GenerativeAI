@@ -527,9 +527,10 @@ def review_and_export() -> None:
         st.divider()
         st.markdown(
             "**Next step: automate these test cases.** Download the Excel above, then upload it in the "
-            "AI Automation Code Generator to get a ready-to-run Playwright (JavaScript) Page Object Model project."
+            "AI Automation Code Generator to get a ready-to-run Page Object Model project in "
+            "**Playwright (JavaScript)** or **Selenium (Java + TestNG + Maven)**, your choice."
         )
-        st.link_button("🎭 Generate Playwright automation →", config.AUTOMATION_APP_URL)
+        st.link_button("🤖 Generate automation scripts (Playwright or Selenium) →", config.AUTOMATION_APP_URL)
 
 
 review_and_export()
