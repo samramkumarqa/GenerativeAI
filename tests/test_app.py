@@ -126,3 +126,16 @@ def test_recording_tab_and_transcript_preview(monkeypatch):
     assert not at.exception
     assert any(e.label == "Preview transcript" for e in at.expander)
     assert any(b.proto.label == "Download transcript (.txt)" for b in at.get("download_button"))
+
+
+def test_upload_accepts_images(monkeypatch):
+    at = _app(monkeypatch).run()
+    assert not at.exception
+    up = at.get("file_uploader")[0].proto
+    assert up.multiple_files and {".png", ".jpg", ".webp", ".pdf", ".docx"} <= set(up.type)
+    assert "images" in up.label
+    at.session_state["doc_text"] = "FR-01 The cart total must include GST. " * 10
+    at.session_state["doc_name"] = "2 images"
+    at.session_state["from_images"] = True
+    at.run()
+    assert any("Read from the image(s) by AI" in c.value for c in at.caption)

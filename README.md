@@ -13,6 +13,10 @@ Turn a Business Requirements Document, or a **recording of a requirements meetin
    ffmpeg extracts the audio, **Groq Whisper** transcribes it (or translates it to English, e.g. a Tamil or
    Hindi meeting), and the timestamped transcript becomes the BRD. Each extracted requirement quotes the
    **[hh:mm:ss]** moment it was said, so testers can jump back to the recording.
+   **Images** work too: upload photographed BRD pages, screenshots, wireframes or a whiteboard photo (PNG, JPG,
+   WEBP…, up to 10 at once). Each image is straightened and resized, and a **Groq vision model** transcribes
+   its text, keeping headings, numbered requirements and tables; for a screen or wireframe it also lists the
+   fields, buttons and messages it shows. You check the extracted text before going on.
 2. **Extract requirements.** The LLM reads the whole document section by section and lists every testable requirement, keeping the BRD's own IDs (e.g. `FR-03`) and a verbatim source quote. You review, edit, untick or add requirements before anything is generated.
 3. **Generate test cases per requirement.** For each batch of requirements, the passages of the BRD that describe them are retrieved with FAISS and passed to the model as context (RAG), so test cases use the document's real rules and values.
 4. **Review and approve (human in the loop).** Every generated test case has an **Approve** checkbox (with *Select all* / *Clear all*). The reviewer ticks the ones they accept and can edit any field inline. Not happy with some? Write what should change and click **Regenerate unticked**: the model rewrites those cases from the feedback (revision 2, 3, …) for another review.

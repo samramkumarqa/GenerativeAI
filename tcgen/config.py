@@ -53,3 +53,11 @@ MAX_RECORDING_SECONDS = 60 * 60                # keeps a run inside the free tie
 
 # Next step in the toolkit: turns the exported Excel into a Playwright POM project.
 AUTOMATION_APP_URL = "https://appautomationcodegenerator.streamlit.app/"
+
+# Images (photographed BRD pages, screenshots, wireframes): text is read with a Groq vision model.
+IMAGE_TYPES = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"]
+VISION_MODEL = "qwen/qwen3.8-27b"
+MAX_IMAGES = 10                       # per upload; one model call per image
+MAX_IMAGE_BYTES = 20 * 1024 * 1024    # per file, before resizing
+IMAGE_MAX_SIDE = 2000                 # pixels; enough for small print, keeps requests small
+MIN_IMAGE_TEXT_CHARS = 40             # a single screen can hold little text, so lower than MIN_DOCUMENT_CHARS

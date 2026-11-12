@@ -17,6 +17,7 @@ from tcgen.export import build_workbook
 from tcgen.llm import GroqLLM, is_bad_generation
 from tcgen.loaders import DocumentError, read_upload, read_url
 from tcgen import recording
+from tcgen.images import ImageError, is_image, read_images
 from tcgen.pipeline import (
     extract_requirements,
     generate_test_cases,
@@ -30,6 +31,7 @@ from tcgen.rag import DocumentIndex, FastEmbedder
 from tcgen.schemas import Requirement, TestCase
 
 SAMPLE_BRD = Path(__file__).parent / "samples" / "sample_brd.pdf"
+SAMPLE_BRD_IMAGE = Path(__file__).parent / "samples" / "sample_brd_page1.png"
 load_dotenv()  # lets local runs read GROQ_API_KEY from .env
 
 st.set_page_config(page_title="AI Test Case Generator", page_icon="🧪", layout="wide")
@@ -61,7 +63,7 @@ def get_index(text: str) -> DocumentIndex:
 def reset_from(stage: str) -> None:
     """Clear everything downstream of a stage when its input changes."""
     keys = {
-        "document": ["doc_text", "doc_name", "requirements", "test_cases", "superseded"],
+        "document": ["doc_text", "doc_name", "from_images", "requirements", "test_cases", "superseded"],
         "requirements": ["requirements", "test_cases"],
         "test_cases": ["test_cases"],
     }[stage]
@@ -169,14 +171,38 @@ st.subheader("1 · Load your BRD")
 tab_file, tab_rec, tab_url, tab_sample = st.tabs(["Upload file", "🎙️ Recording", "From URL", "Try a sample"])
 
 with tab_file:
-    upload = st.file_uploader("PDF, Word, TXT or Markdown", type=["pdf", "docx", "txt", "md"])
-    if upload and st.button("Use this file", key="use_file"):
+    uploads = st.file_uploader(
+        "PDF, Word, TXT or Markdown, or images (PNG, JPG, WEBP …)",
+        type=["pdf", "docx", "txt", "md"] + [t.lstrip(".") for t in config.IMAGE_TYPES],
+        accept_multiple_files=True,
+        help="One document, or up to 10 images: photographed BRD pages, screenshots, wireframes or a whiteboard. "
+             "Text in images is read with a Groq vision model; images are used in the order uploaded.",
+    )
+    uploads = uploads or []
+    images = [u for u in uploads if is_image(u.name)]
+    docs = [u for u in uploads if not is_image(u.name)]
+    if uploads and (len(docs) > 1 or (docs and images)):
+        st.warning("Upload one document, or one or more images, not both.")
+    elif docs and st.button("Use this file", key="use_file"):
         try:
-            text = read_upload(upload.name, upload.getvalue())
+            text = read_upload(docs[0].name, docs[0].getvalue())
             reset_from("document")
-            st.session_state.doc_text, st.session_state.doc_name = text, upload.name
+            st.session_state.doc_text, st.session_state.doc_name = text, docs[0].name
         except DocumentError as e:
             st.error(str(e))
+    elif images and st.button(f"Read text from {len(images)} image{'s' if len(images) > 1 else ''}", key="use_images"):
+        if not key:
+            st.warning("Add a Groq API key in the sidebar first; reading images uses it too.")
+        else:
+            try:
+                text = read_images([(u.name, u.getvalue()) for u in images], key,
+                                   progress=progress_bar("Reading images…"))
+                reset_from("document")
+                st.session_state.doc_text = text
+                st.session_state.doc_name = images[0].name if len(images) == 1 else f"{len(images)} images"
+                st.session_state.from_images = True
+            except ImageError as e:
+                st.error(str(e))
 
 with tab_rec:
     st.write(
@@ -222,12 +248,14 @@ with tab_sample:
         "A short fictional BRD for an online grocery checkout, with numbered "
         "functional and non-functional requirements."
     )
-    c1, c2, _ = st.columns([1, 1, 3])
+    c1, c2, c3, _ = st.columns([1, 1, 1, 2])
     if c1.button("Use sample BRD", key="use_sample"):
         reset_from("document")
         st.session_state.doc_text = read_upload(SAMPLE_BRD.name, SAMPLE_BRD.read_bytes())
         st.session_state.doc_name = SAMPLE_BRD.name
     c2.download_button("Download sample PDF", SAMPLE_BRD.read_bytes(), SAMPLE_BRD.name)
+    c3.download_button("Download page 1 as an image", SAMPLE_BRD_IMAGE.read_bytes(), SAMPLE_BRD_IMAGE.name,
+                       help="To try image upload: upload this PNG in the Upload file tab.")
 
 doc_text = st.session_state.get("doc_text")
 if not doc_text:
@@ -237,7 +265,11 @@ st.info(
     f"**{st.session_state.doc_name}** · {len(doc_text):,} characters loaded", icon="📄"
 )
 is_transcript = doc_text.startswith("TRANSCRIPT OF RECORDING:")
-with st.expander("Preview transcript" if is_transcript else "Preview extracted text", expanded=is_transcript):
+from_images = st.session_state.get("from_images", False)
+with st.expander("Preview transcript" if is_transcript else "Preview extracted text",
+                 expanded=is_transcript or from_images):
+    if from_images:
+        st.caption("Read from the image(s) by AI. Check it before extracting requirements.")
     st.text(doc_text[:5000] + ("\n…" if len(doc_text) > 5000 else ""))
     if is_transcript:
         st.download_button("Download transcript (.txt)", doc_text, Path(st.session_state.doc_name).stem + "_transcript.txt")
